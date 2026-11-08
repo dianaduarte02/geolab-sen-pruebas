@@ -52,7 +52,11 @@
 </main><footer>GEOlab · SEN · Prototipo local para pruebas. Sin conexión a ArcGIS ni servidor de datos.</footer>
 <div class="modalback" id="modalback"><div aria-labelledby="modal-title" aria-modal="true" class="modal" role="dialog"><div class="headline"><div><h2 id="modal-title">Ficha del registro</h2><p class="sub" id="modal-subtitle"></p></div><div class="modal-head-actions"><span aria-live="polite" id="save-feedback-top"></span><button class="primary" id="quick-save" type="button">Guardar cambios</button><button id="close-modal" type="button">Cerrar ×</button></div></div><div class="splitdetail"><div><h3>Editar información y estado</h3><form class="fields" id="edit-form"></form><div class="statusbar" id="edit-msg">Cada guardado agrega una actuación numerada, con fecha y detalle de los cambios.</div></div><div><h3>Historial de modificaciones</h3><p class="sub">Historial cronológico, conservado junto con el expediente en el respaldo JSON.</p><div class="history" id="history"></div></div></div></div></div>
 <datalist id="eventos-lista"><option value="INCENDIO"><option value="INUNDACIÓN"><option value="TEMPORAL"><option value="SEQUÍA"><option value="OTRO"></option></option></option></option></option></datalist>
-<div class="modalback" id="sen-login-modal"><div class="modal" style="max-width:470px"><div class="headline"><h2>Ingreso de personal autorizado</h2><button id="sen-login-close" type="button">Cerrar</button></div><form id="sen-login-form"><label>Correo electrónico<input autocomplete="username" id="sen-email" required="" type="email"/></label><br/><label>Contraseña<input autocomplete="current-password" id="sen-password" required="" type="password"/></label><div class="buttons"><button class="primary" type="submit">Iniciar sesión</button></div></form></div></div><div class="modalback" id="sen-users-modal"><div class="modal" style="max-width:620px"><div class="headline"><h2>Administración de usuarios</h2><button id="sen-users-close" type="button">Cerrar</button></div><p id="sen-profile">Administrador GEOlab</p><p>La cuenta administradora puede cargar, buscar, editar y exportar expedientes. Por ahora la creación de operadores se realizará en Supabase, hasta validar una función de servidor segura.</p><button data-legacy-users="" type="button">Instrucciones de creación de operadores</button></div></div><script src="config.js"></script><script>
+<div class="modalback" id="sen-login-modal"><div class="modal" style="max-width:470px"><div class="headline"><h2>Ingreso de personal autorizado</h2><button id="sen-login-close" type="button">Cerrar</button></div><form id="sen-login-form"><label>Correo electrónico<input autocomplete="username" id="sen-email" required="" type="email"/></label><br/><label>Contraseña<input autocomplete="current-password" id="sen-password" required="" type="password"/></label><div class="buttons"><button class="primary" type="submit">Iniciar sesión</button></div></form></div></div><div class="modalback" id="sen-users-modal"><div class="modal" style="max-width:820px"><div class="headline"><h2>Administración de usuarios</h2><button id="sen-users-close" type="button">Cerrar</button></div><p id="sen-profile">Administrador GEOlab</p><p class="sub">Solo los administradores activos pueden crear cuentas y habilitar o deshabilitar usuarios. Nunca compartas contraseñas.</p>
+<div id="sen-users-feedback" class="statusbar" role="status" aria-live="polite">Cargando usuarios…</div>
+<div class="panel" style="margin-top:15px"><h3 style="margin-top:0">Crear cuenta autorizada</h3><form id="sen-users-create-form"><div class="fields"><label>Nombre completo<input id="sen-user-name" autocomplete="off" maxlength="120" required></label><label>Correo electrónico<input id="sen-user-email" type="email" autocomplete="off" required></label><label>Rol<select id="sen-user-role"><option value="operator">Operador</option><option value="admin">Administrador</option></select></label><label>Contraseña temporal (mínimo 12 caracteres)<input id="sen-user-password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label></div><div class="buttons"><button class="primary" type="submit" id="sen-users-create">Crear usuario</button></div></form><p class="muted">Compartí la contraseña temporal mediante un medio seguro. La función de Supabase debe estar instalada para crear cuentas.</p></div>
+<div class="panel" style="margin-top:15px"><div class="headline"><h3 style="margin:0">Cuentas registradas</h3><button type="button" id="sen-users-reload">Actualizar listado</button></div><div id="sen-users-list" style="overflow:auto">Todavía no se consultó el listado.</div></div>
+</div></div><script src="config.js"></script><script>
 (()=>{'use strict';
 const KEY='geolab_sen_v17_prueba_vacia', FIELDS=[['expediente','N.º de expediente (interno SEN)','text'],['cargado','Cargado sí/no','select:NO|SI'],['asunto','Asunto','text'],['institucion','Institución remitente','text'],['nota','Número de nota','text'],['recepcion','Fecha recepción SEN','date'],['envio','Fecha de envío del remitente','text'],['localidad','Localidad','text'],['pedido','Pedido – detalle','textarea'],['evento','Evento','text'],['afectados','Personas afectadas','text'],['estatus','Estatus original del expediente','text'],['estado','Estado operativo','select:recibido|edan|completado'],['responsable','Responsable / equipo','text'],['observaciones','Observaciones','textarea'],['lat','Latitud','number'],['lon','Longitud','number']];
 const labels={recibido:'Evento recibido',edan:'En proceso de EDAN',completado:'Completado'},colors={recibido:'#cf414b',edan:'#e49b23',completado:'#279464'};
@@ -244,9 +248,59 @@ $('sen-login').onclick=()=>{if(!configured){notice('El archivo config.js debe te
 $('sen-login-close').onclick=()=>{$('sen-login-modal').classList.remove('open')};
 $('sen-login-form').onsubmit=async(e)=>{e.preventDefault();const button=e.submitter;button.disabled=true;try{const email=$('sen-email').value.trim(),password=$('sen-password').value;const res=await fetch(base+'/auth/v1/token?grant_type=password',{method:'POST',headers:{apikey:apiKey,'Content-Type':'application/json'},body:JSON.stringify({email,password})});if(!res.ok)throw Error(await textError(res));setSession(await res.json());await signedIn();$('sen-login-modal').classList.remove('open');$('sen-password').value=''}catch(err){clearSession();await applyUi();notice('Error de ingreso: '+err.message,true)}finally{button.disabled=false}};
 $('sen-logout').onclick=async()=>{const old=accessToken;clearSession();records=[];await applyUi();await fetchRemote();if(old)fetch(base+'/auth/v1/logout',{method:'POST',headers:{apikey:apiKey,Authorization:'Bearer '+old}}).catch(()=>{})};
-$('sen-people').onclick=()=>{if(currentProfile?.role!=='admin')return;$('sen-users-modal').classList.add('open')};
+// Administrar usuarios: esta función es independiente de las operaciones de expedientes.
+function senUsersMessage(message,error=false){const target=$('sen-users-feedback');target.textContent=message;target.classList.toggle('error',error)}
+async function senUsersApi(payload){
+  if(!authenticated||currentProfile?.role!=='admin')throw Error('Solo una cuenta administradora activa puede gestionar usuarios.');
+  if(Date.now()>sessionExpiry)await renew();
+  let res=await fetch(base+'/functions/v1/manage-users',{
+    method:'POST',headers:{apikey:apiKey,Authorization:'Bearer '+accessToken,'Content-Type':'application/json','x-client-info':'geolab-sen-v26'},body:JSON.stringify(payload)
+  });
+  if(res.status===401&&refreshToken){await renew();res=await fetch(base+'/functions/v1/manage-users',{method:'POST',headers:{apikey:apiKey,Authorization:'Bearer '+accessToken,'Content-Type':'application/json','x-client-info':'geolab-sen-v26'},body:JSON.stringify(payload)})}
+  if(!res.ok)throw Error(await textError(res));
+  return res.json();
+}
+async function senLoadUsers(){
+  senUsersMessage('Consultando usuarios…');
+  try{
+    const result=await senUsersApi({action:'list'});
+    const container=$('sen-users-list');container.replaceChildren();
+    const data=Array.isArray(result.users)?result.users:[];
+    if(!data.length){container.textContent='No se encontraron cuentas.';senUsersMessage('Sin cuentas registradas.');return}
+    const table=el('table');table.style.minWidth='580px';
+    const thead=el('thead'),heading=el('tr');
+    for(const name of ['Nombre','Correo','Rol','Estado','Acción'])heading.append(el('th',{},name));
+    thead.append(heading);table.append(thead);
+    const tbody=el('tbody');
+    for(const user of data){
+      const tr=el('tr');
+      for(const value of [user.full_name||'—',user.email||'—',user.role==='admin'?'Administrador':user.role==='operator'?'Operador':'Pendiente',user.active?'Activo':'Inactivo'])tr.append(el('td',{},String(value)));
+      const actions=el('td');
+      const button=el('button',{},user.active?'Desactivar':'Activar');
+      button.type='button';button.disabled=user.id===currentProfile?.id;
+      if(button.disabled)button.title='No podés desactivar tu propia cuenta';
+      button.onclick=async()=>{
+        if(!confirm((user.active?'¿Desactivar':'¿Activar')+' la cuenta de '+user.email+'?'))return;
+        button.disabled=true;
+        try{await senUsersApi({action:'set_active',user_id:user.id,active:!user.active});await senLoadUsers()}
+        catch(err){senUsersMessage('No se pudo actualizar: '+err.message,true);button.disabled=false}
+      };
+      actions.append(button);tr.append(actions);tbody.append(tr);
+    }
+    table.append(tbody);container.append(table);senUsersMessage(data.length+' cuenta(s) registradas.');
+  }catch(err){senUsersMessage('No se pudo cargar usuarios: '+err.message,true)}
+}
+$('sen-people').onclick=()=>{if(currentProfile?.role!=='admin')return;$('sen-users-modal').classList.add('open');senLoadUsers()};
 $('sen-users-close').onclick=()=>{$('sen-users-modal').classList.remove('open')};
-$('sen-users-modal').querySelector('button[data-legacy-users]').onclick=()=>{notice('Por ahora, nuevas cuentas se habilitan desde Supabase → Authentication → Users y SQL Editor; esta página no contiene claves secretas ni crea cuentas sin un servidor verificado.');$('sen-users-modal').classList.remove('open')};
+$('sen-users-reload').onclick=senLoadUsers;
+$('sen-users-create-form').onsubmit=async event=>{
+  event.preventDefault();const button=$('sen-users-create');button.disabled=true;
+  try{
+    const result=await senUsersApi({action:'create',full_name:$('sen-user-name').value.trim(),email:$('sen-user-email').value.trim(),role:$('sen-user-role').value,password:$('sen-user-password').value});
+    $('sen-user-password').value='';$('sen-user-name').value='';$('sen-user-email').value='';$('sen-user-role').value='operator';
+    await senLoadUsers();senUsersMessage('Cuenta creada correctamente: '+(result.email||'nuevo usuario'));
+  }catch(err){senUsersMessage('No se pudo crear la cuenta: '+err.message,true)}finally{button.disabled=false}
+};
 $('sen-refresh').onclick=fetchRemote;
 async function startup(){try{let saved=null;try{saved=JSON.parse(sessionStorage.getItem('sen_v26_session')||'null')}catch(e){}if(saved&&configured){accessToken=saved.accessToken||'';refreshToken=saved.refreshToken||'';sessionExpiry=saved.sessionExpiry||0;try{if(Date.now()>sessionExpiry)await renew();await signedIn();return}catch(e){clearSession();console.warn('Sesión anterior no disponible:',e.message)}}await applyUi();await fetchRemote()}catch(err){notice(err.message,true)}}
 initMap();update();showStorage();startup();
